@@ -1,5 +1,5 @@
 # tests/test_analyzer.py
-from analyzer import compute_combinations, detect_price_changes
+from analyzer import compute_combinations, detect_price_changes, compute_trend
 
 
 OUTBOUND_FLIGHTS = [
@@ -79,3 +79,59 @@ class TestDetectPriceChanges:
         no_prev = [{'flight_no': 'NEW001', 'price': 888}]
         changes = detect_price_changes(no_prev, PREV_PRICES)
         assert len(changes) == 0
+
+    def test_skips_unchanged_price(self):
+        curr = [{'flight_no': 'MU1234', 'price': 1400}]
+        prev = [{'flight_no': 'MU1234', 'price': 1400}]
+        changes = detect_price_changes(curr, prev)
+        assert len(changes) == 0
+
+    def test_sorted_by_change_ascending(self):
+        curr = [
+            {'flight_no': 'A', 'price': 1000},
+            {'flight_no': 'B', 'price': 500},
+        ]
+        prev = [
+            {'flight_no': 'A', 'price': 800},
+            {'flight_no': 'B', 'price': 1000},
+        ]
+        changes = detect_price_changes(curr, prev)
+        assert len(changes) == 2
+        assert changes[0]['change'] < changes[1]['change']
+
+    def test_handles_empty_previous_prices(self):
+        changes = detect_price_changes(CURR_PRICES, [])
+        assert changes == []
+
+
+class TestComputeTrend:
+    def test_detects_downward_trend(self):
+        curr = [{'total_price': 2000}]
+        prev = [{'total_price': 2500}]
+        trend = compute_trend(curr, prev)
+        assert trend['direction'] == 'down'
+        assert trend['percent'] == -20.0
+
+    def test_detects_upward_trend(self):
+        curr = [{'total_price': 3000}]
+        prev = [{'total_price': 2500}]
+        trend = compute_trend(curr, prev)
+        assert trend['direction'] == 'up'
+        assert trend['percent'] == 20.0
+
+    def test_unchanged_when_no_history(self):
+        trend = compute_trend([], [])
+        assert trend['direction'] == 'unchanged'
+        assert trend['percent'] == 0.0
+
+    def test_unchanged_when_prev_best_zero(self):
+        curr = [{'total_price': 1000}]
+        prev = [{'total_price': 0}]
+        trend = compute_trend(curr, prev)
+        assert trend['direction'] == 'unchanged'
+        assert trend['percent'] == 0.0
+
+    def test_unchanged_when_no_current_data(self):
+        trend = compute_trend([], [{'total_price': 1000}])
+        assert trend['direction'] == 'unchanged'
+        assert trend['percent'] == 0.0

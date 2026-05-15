@@ -1,4 +1,10 @@
+import re
+import time
 from urllib.parse import urlencode
+
+from bs4 import BeautifulSoup
+
+from anti_detect import get_random_ua, random_delay
 
 QUNAR_ONEWAY_URL = "https://flight.qunar.com/site/oneway_list.htm"
 
@@ -44,10 +50,6 @@ def build_all_search_params(
     return tasks
 
 
-import re
-from bs4 import BeautifulSoup
-
-
 def parse_flight_list_html(html: str) -> list[dict]:
     soup = BeautifulSoup(html, 'html.parser')
     flights = []
@@ -91,3 +93,85 @@ def parse_flight_list_html(html: str) -> list[dict]:
 def _parse_stops_count(text: str) -> int:
     match = re.search(r'(\d+)', text)
     return int(match.group(1)) if match else 0
+
+
+def search_flights(
+    departure_city: str,
+    arrival_city: str,
+    date: str,
+    headless: bool = True,
+    proxy: str | None = None,
+) -> list[dict]:
+    from playwright.sync_api import sync_playwright
+
+    url = build_search_url(departure_city, arrival_city, date)
+    ua = get_random_ua()
+
+    with sync_playwright() as p:
+        browser = p.chromium.launch(
+            headless=headless,
+            proxy={'server': proxy} if proxy else None,
+        )
+        context = browser.new_context(
+            user_agent=ua,
+            viewport={'width': 1920, 'height': 1080},
+            locale='zh-CN',
+        )
+        page = context.new_page()
+
+        try:
+            page.goto(url, wait_until='domcontentloaded', timeout=30000)
+            page.wait_for_timeout(5000)
+            page.wait_for_selector('.m-flight-item', timeout=15000)
+            content = page.content()
+            flights = parse_flight_list_html(content)
+        except Exception as e:
+            timestamp = time.strftime('%Y%m%d_%H%M%S')
+            page.screenshot(path=f'data/captcha_{timestamp}.png')
+            raise RuntimeError(
+                f"Failed to parse flight results for {departure_city}→{arrival_city} {date}: {e}"
+            ) from e
+        finally:
+            context.close()
+            browser.close()
+
+    return flights
+
+
+def search_all_routes(
+    search_params: list[dict],
+    headless: bool = True,
+    proxy: str | None = None,
+    min_delay: int = 15,
+    max_delay: int = 30,
+) -> list[dict]:
+    all_flights = []
+    total = len(search_params)
+
+    for i, params in enumerate(search_params):
+        print(f"[{i+1}/{total}] Searching: {params['departure_city']}→{params['arrival_city']} {params['date']}")
+        try:
+            flights = search_flights(
+                params['departure_city'],
+                params['arrival_city'],
+                params['date'],
+                headless=headless,
+                proxy=proxy,
+            )
+            for f in flights:
+                f.update({
+                    'direction': params['direction'],
+                    'departure_airport': params['departure_code'],
+                    'arrival_airport': params['arrival_code'],
+                    'date': params['date'],
+                })
+            all_flights.extend(flights)
+            print(f"  -> Found {len(flights)} flights")
+        except Exception as e:
+            print(f"  -> Error: {e}")
+
+        if i < total - 1:
+            delay = random_delay(min_delay, max_delay)
+            time.sleep(delay)
+
+    return all_flights

@@ -1,3 +1,4 @@
+import os
 import re
 import time
 from urllib.parse import urlencode
@@ -126,8 +127,12 @@ def search_flights(
             content = page.content()
             flights = parse_flight_list_html(content)
         except Exception as e:
-            timestamp = time.strftime('%Y%m%d_%H%M%S')
-            page.screenshot(path=f'data/captcha_{timestamp}.png')
+            try:
+                os.makedirs('data', exist_ok=True)
+                timestamp = time.strftime('%Y%m%d_%H%M%S')
+                page.screenshot(path=f'data/captcha_{timestamp}.png')
+            except Exception:
+                pass
             raise RuntimeError(
                 f"Failed to parse flight results for {departure_city}→{arrival_city} {date}: {e}"
             ) from e
@@ -167,8 +172,11 @@ def search_all_routes(
                 })
             all_flights.extend(flights)
             print(f"  -> Found {len(flights)} flights")
-        except Exception as e:
+        except RuntimeError as e:
             print(f"  -> Error: {e}")
+        except Exception as e:
+            print(f"  -> Fatal error: {e}. Stopping all searches.")
+            break
 
         if i < total - 1:
             delay = random_delay(min_delay, max_delay)

@@ -17,7 +17,7 @@ def format_report(
     lines.append("🏆 最优组合 Top 5:")
     lines.append("")
 
-    for i, combo in enumerate(combinations, 1):
+    for i, combo in enumerate(combinations[:5], 1):
         ob = combo['outbound']
         rt = combo['return']
         stops_ob = "直飞" if ob.get('stops', 0) == 0 else f"经停{ob.get('stops')}"
@@ -80,8 +80,11 @@ def send_price_drop_alert(
     if not combinations:
         return False
 
-    now = datetime.now().strftime('%Y-%m-%d %H:%M')
     best = combinations[0]
+    if best['total_price'] > threshold:
+        return False
+
+    now = datetime.now().strftime('%Y-%m-%d %H:%M')
     content = (
         f"🔥 机票降价提醒 - {now}\n\n"
         f"最优组合: {best['outbound']['departure_airport']}→"

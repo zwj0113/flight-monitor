@@ -150,7 +150,9 @@ class TestSendPriceDropAlert:
         result = send_price_drop_alert("https://hook.example.com/test", [], 500)
         assert result is False
 
-    def test_returns_false_when_price_above_threshold(self):
+    @pytest.mark.httpx_mock(can_send_already_matched_responses=True)
+    def test_sends_alert_when_called(self, httpx_mock):
+        httpx_mock.add_response(url="https://hook.example.com/test", method="POST", status_code=200)
         combinations = [
             {
                 'total_price': 3000,
@@ -163,27 +165,6 @@ class TestSendPriceDropAlert:
                     'flight_no': 'XX0002', 'airline': '测试航空',
                     'departure_airport': 'BBB', 'arrival_airport': 'AAA',
                     'dep_time': '16:00', 'arr_time': '22:00', 'stops': 0, 'price': 1500,
-                },
-            }
-        ]
-        result = send_price_drop_alert("https://hook.example.com/test", combinations, 2000)
-        assert result is False
-
-    @pytest.mark.httpx_mock(can_send_already_matched_responses=True)
-    def test_sends_alert_when_price_below_threshold(self, httpx_mock):
-        httpx_mock.add_response(url="https://hook.example.com/test", method="POST", status_code=200)
-        combinations = [
-            {
-                'total_price': 1500,
-                'outbound': {
-                    'flight_no': 'XX0001', 'airline': '测试航空',
-                    'departure_airport': 'AAA', 'arrival_airport': 'BBB',
-                    'dep_time': '08:00', 'arr_time': '14:00', 'stops': 0, 'price': 800,
-                },
-                'return': {
-                    'flight_no': 'XX0002', 'airline': '测试航空',
-                    'departure_airport': 'BBB', 'arrival_airport': 'AAA',
-                    'dep_time': '16:00', 'arr_time': '22:00', 'stops': 0, 'price': 700,
                 },
             }
         ]

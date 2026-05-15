@@ -83,7 +83,6 @@ def run_query(config: dict) -> None:
     if webhook and 'REPLACE_ME' not in webhook:
         send_feishu_notification(webhook, "机票监控报告", report)
 
-        best_price = combinations[0]['total_price'] if combinations else 0
         threshold = config['notification']['price_drop_threshold']
         if any(c['change'] < -threshold for c in changes):
             send_price_drop_alert(webhook, combinations, threshold)

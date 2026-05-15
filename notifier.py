@@ -81,9 +81,6 @@ def send_price_drop_alert(
         return False
 
     best = combinations[0]
-    if best['total_price'] > threshold:
-        return False
-
     now = datetime.now().strftime('%Y-%m-%d %H:%M')
     content = (
         f"🔥 机票降价提醒 - {now}\n\n"

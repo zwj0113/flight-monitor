@@ -1,0 +1,51 @@
+flight:
+  outbound_date: "2026-09-25"
+  return_date: "2026-10-07"
+  departure_airports:
+    - code: SHA
+      city: "上海"
+    - code: PVG
+      city: "上海"
+    - code: HGH
+      city: "杭州"
+    - code: NKG
+      city: "南京"
+    - code: WUX
+      city: "无锡"
+    - code: CZX
+      city: "常州"
+    - code: NTG
+      city: "南通"
+  arrival_airport:
+    code: URC
+    city: "乌鲁木齐"
+  return_airports:
+    - code: SHA
+      city: "上海"
+    - code: PVG
+      city: "上海"
+    - code: HGH
+      city: "杭州"
+    - code: NKG
+      city: "南京"
+    - code: WUX
+      city: "无锡"
+    - code: CZX
+      city: "常州"
+    - code: NTG
+      city: "南通"
+
+schedule:
+  interval_hours: 6
+
+notification:
+  feishu_webhook: "https://open.feishu.cn/open-apis/bot/v2/hook/REPLACE_ME"
+  price_drop_threshold: 200
+
+anti_detect:
+  min_delay: 15
+  max_delay: 30
+  proxy: null
+
+database:
+  path: "data/flights.db"

@@ -25,13 +25,43 @@ class FlightDB:
                     arr_time TEXT DEFAULT '',
                     stops INTEGER DEFAULT 0,
                     price INTEGER NOT NULL,
-                    price_class TEXT DEFAULT ''
+                    price_class TEXT DEFAULT '',
+                    aircraft_code TEXT DEFAULT '',
+                    aircraft_name TEXT DEFAULT '',
+                    dep_airport_name TEXT DEFAULT '',
+                    arr_airport_name TEXT DEFAULT '',
+                    dep_terminal TEXT DEFAULT '',
+                    arr_terminal TEXT DEFAULT '',
+                    duration_minutes INTEGER DEFAULT 0,
+                    free_baggage INTEGER DEFAULT 0,
+                    baggage_tag TEXT DEFAULT '',
+                    operate_airline TEXT DEFAULT '',
+                    operate_flight_no TEXT DEFAULT ''
                 )
             """)
             conn.execute("""
                 CREATE INDEX IF NOT EXISTS idx_flight_query
                 ON flight_prices(direction, departure_airport, arrival_airport, date, query_time)
             """)
+            # Migrate existing databases: add columns if they don't exist
+            new_columns = [
+                ('aircraft_code', 'TEXT DEFAULT \'\''),
+                ('aircraft_name', 'TEXT DEFAULT \'\''),
+                ('dep_airport_name', 'TEXT DEFAULT \'\''),
+                ('arr_airport_name', 'TEXT DEFAULT \'\''),
+                ('dep_terminal', 'TEXT DEFAULT \'\''),
+                ('arr_terminal', 'TEXT DEFAULT \'\''),
+                ('duration_minutes', 'INTEGER DEFAULT 0'),
+                ('free_baggage', 'INTEGER DEFAULT 0'),
+                ('baggage_tag', 'TEXT DEFAULT \'\''),
+                ('operate_airline', 'TEXT DEFAULT \'\''),
+                ('operate_flight_no', 'TEXT DEFAULT \'\''),
+            ]
+            for col_name, col_type in new_columns:
+                try:
+                    conn.execute(f"ALTER TABLE flight_prices ADD COLUMN {col_name} {col_type}")
+                except sqlite3.OperationalError:
+                    pass  # Column already exists
 
     def save_flights(self, flights: list[dict]) -> int:
         now = datetime.now().isoformat(timespec='seconds')
@@ -41,13 +71,24 @@ class FlightDB:
                 conn.execute("""
                     INSERT INTO flight_prices
                     (query_time, direction, departure_airport, arrival_airport,
-                     date, flight_no, airline, dep_time, arr_time, stops, price, price_class)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     date, flight_no, airline, dep_time, arr_time, stops, price, price_class,
+                     aircraft_code, aircraft_name, dep_airport_name, arr_airport_name,
+                     dep_terminal, arr_terminal, duration_minutes, free_baggage, baggage_tag,
+                     operate_airline, operate_flight_no)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                            ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                            ?, ?)
                 """, (
                     now, f['direction'], f['departure_airport'], f['arrival_airport'],
                     f['date'], f['flight_no'], f.get('airline', ''),
                     f.get('dep_time', ''), f.get('arr_time', ''),
-                    f.get('stops', 0), f['price'], f.get('price_class', '')
+                    f.get('stops', 0), f['price'], f.get('price_class', ''),
+                    f.get('aircraft_code', ''), f.get('aircraft_name', ''),
+                    f.get('dep_airport_name', ''), f.get('arr_airport_name', ''),
+                    f.get('dep_terminal', ''), f.get('arr_terminal', ''),
+                    f.get('duration_minutes', 0), 1 if f.get('free_baggage') else 0,
+                    f.get('baggage_tag', ''),
+                    f.get('operate_airline', ''), f.get('operate_flight_no', ''),
                 ))
                 count += 1
             return count

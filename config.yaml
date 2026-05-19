@@ -40,6 +40,7 @@ schedule:
 
 notification:
   feishu_webhook: "https://open.feishu.cn/open-apis/bot/v2/hook/REPLACE_ME"
+  lark_chat_id: "oc_3c567480a03827633462ef84d5f2e95a"
   price_drop_threshold: 200
 
 anti_detect:

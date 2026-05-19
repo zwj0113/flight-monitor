@@ -1,5 +1,5 @@
 # tests/test_analyzer.py
-from analyzer import compute_combinations, detect_price_changes, compute_trend
+from analyzer import compute_baseline, compute_combinations, detect_price_changes, compute_trend
 
 
 OUTBOUND_FLIGHTS = [
@@ -135,3 +135,59 @@ class TestComputeTrend:
         trend = compute_trend([], [{'total_price': 1000}])
         assert trend['direction'] == 'unchanged'
         assert trend['percent'] == 0.0
+
+
+class TestComputeBaseline:
+    def test_finds_sha_pvg_baseline(self):
+        flights = [
+            {'direction': 'outbound', 'departure_airport': 'SHA', 'arrival_airport': 'URC',
+             'price': 2630},
+            {'direction': 'outbound', 'departure_airport': 'PVG', 'arrival_airport': 'URC',
+             'price': 2800},
+            {'direction': 'return', 'departure_airport': 'URC', 'arrival_airport': 'SHA',
+             'price': 2080},
+            {'direction': 'return', 'departure_airport': 'URC', 'arrival_airport': 'PVG',
+             'price': 2150},
+        ]
+        baseline = compute_baseline(flights)
+        assert baseline is not None
+        assert baseline['outbound_min'] == 2630  # SHA cheapest
+        assert baseline['return_min'] == 2080  # SHA cheapest
+        assert baseline['airport'] in ('SHA', 'PVG')
+
+    def test_returns_none_when_no_sha_pvg_outbound(self):
+        flights = [
+            {'direction': 'outbound', 'departure_airport': 'HGH', 'arrival_airport': 'URC',
+             'price': 1500},
+            {'direction': 'return', 'departure_airport': 'URC', 'arrival_airport': 'SHA',
+             'price': 2000},
+        ]
+        baseline = compute_baseline(flights)
+        assert baseline is None
+
+    def test_returns_none_when_no_sha_pvg_return(self):
+        flights = [
+            {'direction': 'outbound', 'departure_airport': 'SHA', 'arrival_airport': 'URC',
+             'price': 2630},
+            {'direction': 'return', 'departure_airport': 'URC', 'arrival_airport': 'NKG',
+             'price': 1800},
+        ]
+        baseline = compute_baseline(flights)
+        assert baseline is None
+
+    def test_handles_empty_flights(self):
+        baseline = compute_baseline([])
+        assert baseline is None
+
+    def test_ignores_non_sha_pvg_airports(self):
+        flights = [
+            {'direction': 'outbound', 'departure_airport': 'SHA', 'arrival_airport': 'URC',
+             'price': 2630},
+            {'direction': 'outbound', 'departure_airport': 'HGH', 'arrival_airport': 'URC',
+             'price': 1000},  # cheaper but not baseline
+            {'direction': 'return', 'departure_airport': 'URC', 'arrival_airport': 'SHA',
+             'price': 2080},
+        ]
+        baseline = compute_baseline(flights)
+        assert baseline is not None
+        assert baseline['outbound_min'] == 2630  # HGH's 1000 ignored

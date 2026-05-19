@@ -8,14 +8,24 @@ Usage:
 """
 
 import argparse
+import os
 import sys
 import time
+
+# Fix Windows console encoding for emoji/Chinese output
+try:
+    sys.stdout.reconfigure(encoding='utf-8')
+except Exception:
+    pass
+
+# Ensure the project root is on sys.path for direct script execution
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from config_loader import load_config
 from database import FlightDB
 from searcher import build_all_search_params, search_all_routes
-from analyzer import compute_combinations, detect_price_changes, compute_trend
-from notifier import format_report, send_feishu_notification, send_price_drop_alert
+from analyzer import compute_combinations, detect_price_changes, compute_trend, compute_baseline
+from notifier import format_report, send_feishu_notification, send_lark_notification, send_price_drop_alert
 
 
 def run_query(config: dict) -> None:
@@ -51,6 +61,7 @@ def run_query(config: dict) -> None:
     returns = [f for f in all_flights if f['direction'] == 'return']
 
     combinations = compute_combinations(outbounds, returns, top_n=5)
+    baseline = compute_baseline(all_flights)
 
     prev_outbounds = []
     prev_returns = []
@@ -76,30 +87,48 @@ def run_query(config: dict) -> None:
 
     changes = detect_price_changes(all_flights, all_prev)
 
-    report = format_report(combinations, changes, trend)
+    report = format_report(combinations, changes, trend, baseline=baseline)
     print(report)
 
     webhook = config['notification']['feishu_webhook']
+    chat_id = config['notification'].get('lark_chat_id', '')
+    threshold = config['notification']['price_drop_threshold']
+
     if webhook and 'REPLACE_ME' not in webhook:
         send_feishu_notification(webhook, "机票监控报告", report)
-
-        threshold = config['notification']['price_drop_threshold']
         if any(c['change'] < -threshold for c in changes):
             send_price_drop_alert(webhook, combinations, threshold)
+    elif chat_id:
+        send_lark_notification(chat_id, "机票监控报告", report)
+        if any(c['change'] < -threshold for c in changes):
+            _send_lark_drop_alert(chat_id, combinations)
     else:
-        print("(Feishu webhook not configured, skipping notification)")
+        print("(Feishu notification not configured, skipping)")
 
     print(f"Query completed at {time.strftime('%Y-%m-%d %H:%M:%S')}")
 
 
 def _send_empty_report(config: dict) -> None:
     webhook = config['notification']['feishu_webhook']
+    chat_id = config['notification'].get('lark_chat_id', '')
+    msg = f"⚠️ {time.strftime('%Y-%m-%d %H:%M')}\n\n本次查询未获取到航班数据，请检查去哪儿页面是否正常。"
     if webhook and 'REPLACE_ME' not in webhook:
-        send_feishu_notification(
-            webhook,
-            "机票监控报告",
-            f"⚠️ {time.strftime('%Y-%m-%d %H:%M')}\n\n本次查询未获取到航班数据，请检查去哪儿页面是否正常。"
-        )
+        send_feishu_notification(webhook, "机票监控报告", msg)
+    elif chat_id:
+        send_lark_notification(chat_id, "机票监控报告", msg)
+
+
+def _send_lark_drop_alert(chat_id: str, combinations: list[dict]) -> None:
+    best = combinations[0]
+    msg = (
+        f"🔥 机票降价提醒 - {time.strftime('%Y-%m-%d %H:%M')}\n\n"
+        f"最优组合: {best['outbound']['departure_airport']}→"
+        f"{best['outbound']['arrival_airport']} + "
+        f"{best['return']['departure_airport']}→"
+        f"{best['return']['arrival_airport']}\n"
+        f"当前最低总价: ¥{best['total_price']:,}"
+    )
+    send_lark_notification(chat_id, "机票降价提醒", msg)
 
 
 def main():

@@ -46,6 +46,45 @@ def detect_price_changes(
     return sorted(changes, key=lambda x: x['change'])
 
 
+def compute_baseline(flights: list[dict]) -> dict | None:
+    """Compute the baseline from SHA/PVG flights.
+
+    Returns the lowest outbound price (Shanghai→URC) and lowest return price
+    (URC→Shanghai) among SHA/PVG airports, or None if no data available.
+    """
+    sha_pvg_codes = {'SHA', 'PVG'}
+
+    outbound_prices = [
+        f['price'] for f in flights
+        if f['direction'] == 'outbound' and f['departure_airport'] in sha_pvg_codes
+    ]
+    return_prices = [
+        f['price'] for f in flights
+        if f['direction'] == 'return' and f['arrival_airport'] in sha_pvg_codes
+    ]
+
+    if not outbound_prices or not return_prices:
+        return None
+
+    outbound_min = min(outbound_prices)
+    return_min = min(return_prices)
+
+    # Determine which airport provided the outbound minimum
+    airport = 'SHA'  # default
+    for f in flights:
+        if (f['direction'] == 'outbound'
+                and f['departure_airport'] in sha_pvg_codes
+                and f['price'] == outbound_min):
+            airport = f['departure_airport']
+            break
+
+    return {
+        'outbound_min': outbound_min,
+        'return_min': return_min,
+        'airport': airport,
+    }
+
+
 def compute_trend(combinations: list[dict], prev_combinations: list[dict]) -> dict:
     if not prev_combinations or not combinations:
         return {'direction': 'unchanged', 'percent': 0.0}

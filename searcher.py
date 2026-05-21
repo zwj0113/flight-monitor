@@ -21,6 +21,49 @@ _AIRPORT_COORDS = {
     'URC': (43.9071, 87.4742),    # 乌鲁木齐地窝堡
 }
 
+# Airport short Chinese names for display
+_AIRPORT_CN = {
+    'SHA': '上海虹桥', 'PVG': '上海浦东', 'HGH': '杭州萧山',
+    'NKG': '南京禄口', 'WUX': '无锡硕放', 'CZX': '常州奔牛',
+    'NTG': '南通兴东', 'URC': '乌鲁木齐天山',
+}
+
+# Price channel key -> Chinese name
+_CHANNEL_CN = {
+    'JPFWB': '机票服务包', 'GFFX_HO': '吉祥官方旗舰',
+    'YC_QJ': '优程旗舰', 'CC_QJ': '差旅旗舰',
+    'CZCW': '畅行舱位', 'NLXZ': '南航直销',
+    'RSXZ': '日上优选', 'JJCZL': '经济舱直连',
+    'JJCZL_CZ': '经济舱直连(南航)', 'JJCZL_MU': '经济舱直连(东航)',
+    'JJCZL_FM': '经济舱直连(上航)',
+    'SWYX_DS_ZX': '商务优选(电商)', 'SWYX_LM_ZX': '商务优选(联盟)',
+    'B2T_ZS': 'B2T直省', 'PTZC_HSHY': '普通政策',
+    'CC_ZDJ': '差旅自定价', 'ZLHS_HY': '中联航惠',
+    'GFFX': '官方飞行', 'HSZX_CCZDJ': '航司直连',
+}
+
+# Price groupType -> Chinese name (fallback when key not in _CHANNEL_CN)
+_GROUP_CN = {
+    'Airline': '航司直连', 'Priority': '优选',
+    'Service_Packages': '服务包', 'Favorable': '特惠',
+}
+
+
+def _channel_cn(key: str, group_type: str) -> str:
+    """Return Chinese name for a price channel."""
+    if key in _CHANNEL_CN:
+        return _CHANNEL_CN[key]
+    return _GROUP_CN.get(group_type, group_type)
+
+
+def _airport_display(code: str, full_name: str) -> str:
+    """Return 'CODE(短中文名)' format for airport display."""
+    if code in _AIRPORT_CN:
+        short = _AIRPORT_CN[code]
+    else:
+        short = full_name.replace('国际机场', '').replace('机场', '')
+    return f"{code}({short})"
+
 
 def _haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     """Calculate great-circle distance between two points in kilometers."""
@@ -153,6 +196,14 @@ def _parse_batch_search_response(
         if not adult_price or adult_price <= 0 or adult_price == float('inf'):
             continue
 
+        # Channel info from the first price entry
+        price_key = ''
+        group_type = ''
+        if price_list:
+            price_key = price_list[0].get('key', '') or ''
+            group_type = price_list[0].get('groupType', '') or ''
+        price_channel_cn = _channel_cn(price_key, group_type)
+
         # Baggage info from the first price entry
         baggage_tag = ''
         free_baggage = False
@@ -187,6 +238,10 @@ def _parse_batch_search_response(
             'arr_time': arr_time,
             'stops': 0,
             'price': int(total_price),
+            'adult_price': int(adult_price),
+            'fuel_surcharge': fuel,
+            'price_key': price_key,
+            'price_channel_cn': price_channel_cn,
             'price_class': price_class,
             'direction': direction,
             'departure_airport': dep_code,

@@ -24,6 +24,10 @@ class TestFlightDB:
             'arr_time': '14:30',
             'stops': 0,
             'price': 1280,
+            'adult_price': 1060,
+            'fuel_surcharge': 170,
+            'price_key': 'JPFWB',
+            'price_channel_cn': '机票服务包',
             'price_class': '经济舱',
             'aircraft_code': '320',
             'aircraft_name': '空客320(中)',
@@ -101,6 +105,23 @@ class TestFlightDB:
         assert f['duration_minutes'] == 320
         assert f['free_baggage'] == 1
         assert f['baggage_tag'] == '20KG'
+
+    def test_saves_and_retrieves_price_breakdown_fields(self):
+        """New price breakdown fields should persist."""
+        db = FlightDB(self.db_path)
+        flight = self._sample_flight(
+            adult_price=3190, fuel_surcharge=170,
+            price_key='GFFX_HO', price_channel_cn='吉祥官方旗舰',
+        )
+        db.save_flights([flight])
+
+        results = db.get_latest_prices('outbound', 'PVG', 'URC', '2026-09-25')
+        assert len(results) == 1
+        f = results[0]
+        assert f['adult_price'] == 3190
+        assert f['fuel_surcharge'] == 170
+        assert f['price_key'] == 'GFFX_HO'
+        assert f['price_channel_cn'] == '吉祥官方旗舰'
 
     def test_clear_old_data(self):
         db = FlightDB(self.db_path)

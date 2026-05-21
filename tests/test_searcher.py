@@ -49,7 +49,8 @@ def _make_itinerary(flight_no, airline, dep_time, arr_time, adult_price, transfe
                     aircraft_code='', aircraft_name='', dep_airport_name='', arr_airport_name='',
                     dep_terminal='', arr_terminal='', duration=0, operate_airline='',
                     operate_flight_no='',
-                    baggage_tag='', free_baggage=True):
+                    baggage_tag='', free_baggage=True,
+                    price_key='', group_type=''):
     """Helper to build a flight itinerary matching real batchSearch structure."""
     baggage = {}
     if baggage_tag or free_baggage:
@@ -90,6 +91,8 @@ def _make_itinerary(flight_no, airline, dep_time, arr_time, adult_price, transfe
             "adultPrice": adult_price,
             "cabin": "Y",
             "baggage": baggage,
+            "key": price_key,
+            "groupType": group_type,
         }],
     }
 
@@ -355,6 +358,107 @@ class TestParseBatchSearchResponse:
             free_baggage_only=True,
         )
         assert len(flights) == 0  # filtered out, no free baggage
+
+
+    def test_new_price_breakdown_fields(self):
+        """Should include adult_price, fuel_surcharge, price_key, price_channel_cn."""
+        response = {
+            "data": {
+                "flightItineraryList": [
+                    _make_itinerary(
+                        "HO1255", "吉祥航空",
+                        "2026-09-25 10:05:00", "2026-09-25 15:25:00", 3190,
+                        price_key='JPFWB', group_type='Service_Packages',
+                    ),
+                ],
+            },
+        }
+        flights = _parse_batch_search_response(
+            response, 'outbound', 'SHA', 'URC', '2026-09-25',
+        )
+        assert len(flights) == 1
+        f = flights[0]
+        # SHA->URC >800km: fuel=170
+        assert f['adult_price'] == 3190
+        assert f['fuel_surcharge'] == 170
+        assert f['price'] == 3190 + 170 + 50  # total price unchanged
+        assert f['price_key'] == 'JPFWB'
+        assert f['price_channel_cn'] == '机票服务包'
+
+    def test_channel_fallback_to_group_type(self):
+        """When key is unknown, channel_cn falls back to groupType mapping."""
+        response = {
+            "data": {
+                "flightItineraryList": [
+                    _make_itinerary(
+                        "XX9999", "测试航空",
+                        "2026-09-25 08:00:00", "2026-09-25 12:00:00", 1000,
+                        price_key='UNKNOWN_KEY', group_type='Priority',
+                    ),
+                ],
+            },
+        }
+        flights = _parse_batch_search_response(
+            response, 'outbound', 'SHA', 'URC', '2026-09-25',
+        )
+        assert len(flights) == 1
+        f = flights[0]
+        assert f['price_key'] == 'UNKNOWN_KEY'
+        assert f['price_channel_cn'] == '优选'
+
+    def test_empty_channel_defaults(self):
+        """When priceList has no key/groupType, fields should be empty strings."""
+        response = {
+            "data": {
+                "flightItineraryList": [
+                    _make_itinerary(
+                        "CA1111", "中国国航",
+                        "2026-09-25 08:00:00", "2026-09-25 12:00:00", 3000,
+                    ),
+                ],
+            },
+        }
+        flights = _parse_batch_search_response(
+            response, 'outbound', 'SHA', 'URC', '2026-09-25',
+        )
+        assert len(flights) == 1
+        f = flights[0]
+        assert f['price_key'] == ''
+        assert f['price_channel_cn'] == ''
+
+
+class TestAirportDisplay:
+    """Tests for _airport_display helper."""
+
+    def test_known_code_returns_mapped_name(self):
+        from searcher import _airport_display
+        assert _airport_display('SHA', '虹桥国际机场') == 'SHA(上海虹桥)'
+        assert _airport_display('URC', '地窝堡国际机场') == 'URC(乌鲁木齐天山)'
+        assert _airport_display('PVG', '浦东国际机场') == 'PVG(上海浦东)'
+
+    def test_unknown_code_extracts_short_name(self):
+        from searcher import _airport_display
+        assert _airport_display('PEK', '首都国际机场') == 'PEK(首都)'
+        assert _airport_display('CAN', '白云机场') == 'CAN(白云)'
+
+
+class TestChannelCn:
+    """Tests for _channel_cn helper."""
+
+    def test_known_key_returns_mapped_name(self):
+        from searcher import _channel_cn
+        assert _channel_cn('JPFWB', '') == '机票服务包'
+        assert _channel_cn('GFFX_HO', '') == '吉祥官方旗舰'
+        assert _channel_cn('CZCW', '') == '畅行舱位'
+
+    def test_unknown_key_falls_back_to_group(self):
+        from searcher import _channel_cn
+        assert _channel_cn('RANDOM', 'Airline') == '航司直连'
+        assert _channel_cn('RANDOM', 'Favorable') == '特惠'
+
+    def test_unknown_key_and_group_returns_group_raw(self):
+        from searcher import _channel_cn
+        assert _channel_cn('RANDOM', 'UnknownType') == 'UnknownType'
 
 
 class TestSearchFlightsImport:

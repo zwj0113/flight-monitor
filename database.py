@@ -25,6 +25,10 @@ class FlightDB:
                     arr_time TEXT DEFAULT '',
                     stops INTEGER DEFAULT 0,
                     price INTEGER NOT NULL,
+                    adult_price INTEGER DEFAULT 0,
+                    fuel_surcharge INTEGER DEFAULT 0,
+                    price_key TEXT DEFAULT '',
+                    price_channel_cn TEXT DEFAULT '',
                     price_class TEXT DEFAULT '',
                     aircraft_code TEXT DEFAULT '',
                     aircraft_name TEXT DEFAULT '',
@@ -45,17 +49,21 @@ class FlightDB:
             """)
             # Migrate existing databases: add columns if they don't exist
             new_columns = [
-                ('aircraft_code', 'TEXT DEFAULT \'\''),
-                ('aircraft_name', 'TEXT DEFAULT \'\''),
-                ('dep_airport_name', 'TEXT DEFAULT \'\''),
-                ('arr_airport_name', 'TEXT DEFAULT \'\''),
-                ('dep_terminal', 'TEXT DEFAULT \'\''),
-                ('arr_terminal', 'TEXT DEFAULT \'\''),
+                ('adult_price', 'INTEGER DEFAULT 0'),
+                ('fuel_surcharge', 'INTEGER DEFAULT 0'),
+                ('price_key', "TEXT DEFAULT ''"),
+                ('price_channel_cn', "TEXT DEFAULT ''"),
+                ('aircraft_code', "TEXT DEFAULT ''"),
+                ('aircraft_name', "TEXT DEFAULT ''"),
+                ('dep_airport_name', "TEXT DEFAULT ''"),
+                ('arr_airport_name', "TEXT DEFAULT ''"),
+                ('dep_terminal', "TEXT DEFAULT ''"),
+                ('arr_terminal', "TEXT DEFAULT ''"),
                 ('duration_minutes', 'INTEGER DEFAULT 0'),
                 ('free_baggage', 'INTEGER DEFAULT 0'),
-                ('baggage_tag', 'TEXT DEFAULT \'\''),
-                ('operate_airline', 'TEXT DEFAULT \'\''),
-                ('operate_flight_no', 'TEXT DEFAULT \'\''),
+                ('baggage_tag', "TEXT DEFAULT ''"),
+                ('operate_airline', "TEXT DEFAULT ''"),
+                ('operate_flight_no', "TEXT DEFAULT ''"),
             ]
             for col_name, col_type in new_columns:
                 try:
@@ -71,18 +79,26 @@ class FlightDB:
                 conn.execute("""
                     INSERT INTO flight_prices
                     (query_time, direction, departure_airport, arrival_airport,
-                     date, flight_no, airline, dep_time, arr_time, stops, price, price_class,
+                     date, flight_no, airline, dep_time, arr_time, stops, price,
+                     adult_price, fuel_surcharge, price_key, price_channel_cn,
+                     price_class,
                      aircraft_code, aircraft_name, dep_airport_name, arr_airport_name,
                      dep_terminal, arr_terminal, duration_minutes, free_baggage, baggage_tag,
                      operate_airline, operate_flight_no)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                            ?, ?, ?,
+                            ?,
                             ?, ?, ?, ?, ?, ?, ?, ?, ?,
                             ?, ?)
                 """, (
                     now, f['direction'], f['departure_airport'], f['arrival_airport'],
                     f['date'], f['flight_no'], f.get('airline', ''),
                     f.get('dep_time', ''), f.get('arr_time', ''),
-                    f.get('stops', 0), f['price'], f.get('price_class', ''),
+                    f.get('stops', 0), f['price'],
+                    f.get('adult_price', 0),
+                    f.get('fuel_surcharge', 0), f.get('price_key', ''),
+                    f.get('price_channel_cn', ''),
+                    f.get('price_class', ''),
                     f.get('aircraft_code', ''), f.get('aircraft_name', ''),
                     f.get('dep_airport_name', ''), f.get('arr_airport_name', ''),
                     f.get('dep_terminal', ''), f.get('arr_terminal', ''),

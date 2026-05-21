@@ -4,6 +4,8 @@ from pathlib import Path
 
 import httpx
 
+from searcher import _airport_display
+
 LARK_CLI = str(Path.home() / "AppData" / "Roaming" / "npm" / "lark-cli.exe")
 
 
@@ -70,8 +72,10 @@ def format_report(
 def _format_flight_line(flight: dict, label: str, change_str: str) -> str:
     """Format a single flight line with full details.
 
-    Example: 去程: SHA→URC CA3272 中国国航 空客320(中)
-             虹桥T2 10:05→15:25 (5h20m) 托运行李额20KG ¥2,630
+    Example: 去程: SHA(虹桥)→URC(天山) HO1255 吉祥航空 空客321(中)
+              T2 10:05→15:25 (5h20m) ¥3,410
+              裸票¥3,190 + 燃油¥170 + 机建¥50 [JPFWB 机票服务包]
+              行李: 托运行李额20KG
     """
     dep_code = flight.get('departure_airport', '')
     arr_code = flight.get('arrival_airport', '')
@@ -85,10 +89,20 @@ def _format_flight_line(flight: dict, label: str, change_str: str) -> str:
     duration_min = flight.get('duration_minutes', 0)
     baggage_tag = flight.get('baggage_tag', '')
     price = flight.get('price', 0)
+    adult_price = flight.get('adult_price', 0)
+    fuel_surcharge = flight.get('fuel_surcharge', 0)
+    price_key = flight.get('price_key', '')
+    price_channel_cn = flight.get('price_channel_cn', '')
     operate_airline = flight.get('operate_airline', '')
+    dep_airport_name = flight.get('dep_airport_name', '')
+    arr_airport_name = flight.get('arr_airport_name', '')
+
+    # Airport display: CODE(短中文名)
+    dep_display = _airport_display(dep_code, dep_airport_name)
+    arr_display = _airport_display(arr_code, arr_airport_name)
 
     # Build the first part: route + flight info
-    parts = [f"{label}: {dep_code}→{arr_code} {flight_no}"]
+    parts = [f"{label}: {dep_display}→{arr_display} {flight_no}"]
     if operate_airline:
         parts.append(f"{operate_airline}(实际承运)")
     else:
@@ -98,9 +112,18 @@ def _format_flight_line(flight: dict, label: str, change_str: str) -> str:
 
     line1 = " ".join(parts)
 
-    # Build the second part: times, terminals, duration, baggage, price
+    # Build the second part: terminals, times, duration, total price
     details = []
-    # Departure time formatting
+    # Terminal info
+    terminal_parts = []
+    if dep_terminal:
+        terminal_parts.append(dep_terminal)
+    if arr_terminal:
+        terminal_parts.append(arr_terminal)
+    if terminal_parts:
+        details.append(" ".join(terminal_parts))
+
+    # Time formatting
     dep_time_short = dep_time[-8:-3] if len(dep_time) >= 8 else dep_time
     arr_time_short = arr_time[-8:-3] if len(arr_time) >= 8 else arr_time
     time_str = f"{dep_time_short}→{arr_time_short}"
@@ -110,23 +133,22 @@ def _format_flight_line(flight: dict, label: str, change_str: str) -> str:
         time_str += f" ({hours}h{mins}m)"
     details.append(time_str)
 
-    # Terminal info
-    terminal_parts = []
-    if dep_terminal:
-        terminal_parts.append(dep_terminal)
-    if arr_terminal:
-        terminal_parts.append(arr_terminal)
-    if terminal_parts:
-        details.insert(0, " ".join(terminal_parts))
-
     details.append(f"¥{price:,}")
     if change_str:
         details.append(change_str)
 
     line2 = " ".join(details)
 
-    # Baggage on its own line if available
     result = f"{line1}\n        {line2}"
+
+    # Price breakdown: 裸票 + 燃油 + 机建 [channel]
+    if adult_price > 0:
+        channel_str = ""
+        if price_key or price_channel_cn:
+            channel_str = f" [{price_key} {price_channel_cn}]"
+        result += f"\n        裸票¥{adult_price:,} + 燃油¥{fuel_surcharge:,} + 机建¥50{channel_str}"
+
+    # Baggage on its own line if available
     if baggage_tag:
         result += f"\n        行李: {baggage_tag}"
 

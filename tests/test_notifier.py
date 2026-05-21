@@ -160,6 +160,54 @@ class TestFormatReport:
         report = format_report([], [], {'direction': 'unchanged', 'percent': 0.0})
         assert '未获取到航班数据' in report
 
+    def test_shows_price_breakdown_and_channel(self):
+        """Should show price breakdown and channel info."""
+        combinations = [
+            {
+                'total_price': 3410,
+                'outbound': {
+                    'flight_no': 'HO1255', 'airline': '吉祥航空',
+                    'departure_airport': 'SHA', 'arrival_airport': 'URC',
+                    'dep_airport_name': '虹桥国际机场', 'arr_airport_name': '地窝堡国际机场',
+                    'dep_time': '2026-09-25 10:05:00', 'arr_time': '2026-09-25 15:25:00',
+                    'stops': 0, 'price': 3410,
+                    'adult_price': 3190, 'fuel_surcharge': 170,
+                    'price_key': 'JPFWB', 'price_channel_cn': '机票服务包',
+                    'aircraft_code': '321', 'aircraft_name': '空客321(中)',
+                    'dep_terminal': 'T2', 'arr_terminal': 'T1',
+                    'duration_minutes': 320, 'baggage_tag': '托运行李额20KG',
+                    'operate_airline': '',
+                },
+                'return': {
+                    'flight_no': 'HO1256', 'airline': '吉祥航空',
+                    'departure_airport': 'URC', 'arrival_airport': 'SHA',
+                    'dep_airport_name': '地窝堡国际机场', 'arr_airport_name': '虹桥国际机场',
+                    'dep_time': '2026-09-25 17:00:00', 'arr_time': '2026-09-25 22:00:00',
+                    'stops': 0, 'price': 3200,
+                    'adult_price': 2980, 'fuel_surcharge': 170,
+                    'price_key': 'JPFWB', 'price_channel_cn': '机票服务包',
+                    'aircraft_code': '321', 'aircraft_name': '空客321(中)',
+                    'dep_terminal': 'T2', 'arr_terminal': 'T1',
+                    'duration_minutes': 300, 'baggage_tag': '托运行李额20KG',
+                    'operate_airline': '',
+                },
+            }
+        ]
+        report = format_report(combinations, [], {'direction': 'unchanged', 'percent': 0.0})
+
+        # Airport display format
+        assert 'SHA(上海虹桥)' in report
+        assert 'URC(乌鲁木齐天山)' in report
+        # Price breakdown
+        assert '裸票¥3,190' in report
+        assert '燃油¥170' in report
+        assert '机建¥50' in report
+        # Channel info
+        assert 'JPFWB' in report
+        assert '机票服务包' in report
+        # Total price still shows
+        assert '¥3,410' in report
+
     def test_limits_to_top_5(self):
         combo = {
             'total_price': 1000,

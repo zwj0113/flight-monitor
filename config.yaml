@@ -39,8 +39,10 @@ schedule:
   interval_hours: 6
 
 notification:
-  feishu_webhook: "https://open.feishu.cn/open-apis/bot/v2/hook/REPLACE_ME"
-  lark_chat_id: "oc_3c567480a03827633462ef84d5f2e95a"
+  feishu:
+    app_id: "cli_a94a1e6c05b89bd8"
+    app_secret: "dq13MLrIrGBaKOjmQVtwLeGV3NKW44EY"
+    chat_id: "oc_f30e25cceed2f9d385725a7b34aedd28"
   price_drop_threshold: 200
 
 anti_detect:

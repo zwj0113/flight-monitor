@@ -1,8 +1,11 @@
 # tests/test_notifier.py
+import json
+import time
 from unittest import mock
 
+import httpx
 import pytest
-from notifier import format_report
+from notifier import format_report, FeishuNotifier
 
 
 class TestFormatReport:
@@ -226,77 +229,177 @@ class TestFormatReport:
         assert report.count('总价:') == 5
 
 
-class TestSendFeishuNotification:
+class TestFeishuNotifierToken:
     @pytest.mark.httpx_mock(can_send_already_matched_responses=True)
-    def test_sends_post_to_webhook(self, httpx_mock):
-        httpx_mock.add_response(url="https://hook.example.com/test", method="POST", status_code=200)
-
-        result = send_feishu_notification(
-            webhook_url="https://hook.example.com/test",
-            title="机票监控报告",
-            content="测试内容",
+    def test_fetches_token_on_first_call(self, httpx_mock):
+        httpx_mock.add_response(
+            url="https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal",
+            method="POST",
+            json={"code": 0, "tenant_access_token": "t-test-token", "expire": 7200},
         )
+
+        notifier = FeishuNotifier("test-app-id", "test-secret")
+        token = notifier._get_token()
+
+        assert token == "t-test-token"
+
+    @pytest.mark.httpx_mock(can_send_already_matched_responses=True)
+    def test_caches_token_within_expiry(self, httpx_mock):
+        httpx_mock.add_response(
+            url="https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal",
+            method="POST",
+            json={"code": 0, "tenant_access_token": "t-cached", "expire": 7200},
+        )
+
+        notifier = FeishuNotifier("test-app-id", "test-secret")
+
+        mock_time = time.time()
+        with mock.patch("time.time", return_value=mock_time):
+            token1 = notifier._get_token()
+        # Second call: within expiry, should return cached
+        with mock.patch("time.time", return_value=mock_time + 100):
+            token2 = notifier._get_token()
+
+        assert token1 == "t-cached"
+        assert token2 == "t-cached"
+        assert len(httpx_mock.get_requests()) == 1  # Only one API call
+
+    @pytest.mark.httpx_mock(can_send_already_matched_responses=True)
+    def test_refreshes_token_when_expired(self, httpx_mock):
+        httpx_mock.add_response(
+           url="https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal",
+            method="POST",
+            json={"code": 0, "tenant_access_token": "t-old", "expire": 7200},
+        )
+        httpx_mock.add_response(
+            url="https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal",
+            method="POST",
+            json={"code": 0, "tenant_access_token": "t-new", "expire": 7200},
+        )
+
+        notifier = FeishuNotifier("test-app-id", "test-secret")
+
+        mock_time = time.time()
+        with mock.patch("time.time", return_value=mock_time):
+            token1 = notifier._get_token()
+        # Advance past expiry (7200 seconds)
+        with mock.patch("time.time", return_value=mock_time + 7200):
+            token2 = notifier._get_token()
+
+        assert token1 == "t-old"
+        assert token2 == "t-new"
+        assert len(httpx_mock.get_requests()) == 2
+
+    @pytest.mark.httpx_mock(can_send_already_matched_responses=True)
+    def test_raises_on_token_error(self, httpx_mock):
+        httpx_mock.add_response(
+            url="https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal",
+            method="POST",
+            json={"code": 999, "msg": "invalid app secret"},
+        )
+
+        notifier = FeishuNotifier("test-app-id", "bad-secret")
+        with pytest.raises(RuntimeError, match="Failed to get tenant token"):
+            notifier._get_token()
+
+
+class TestFeishuNotifierSend:
+    # Chat id used in these tests
+    CHAT_ID = "oc_test123"
+
+    @pytest.mark.httpx_mock(can_send_already_matched_responses=True)
+    def test_send_card_success(self, httpx_mock):
+        httpx_mock.add_response(
+            url="https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal",
+            method="POST",
+            json={"code": 0, "tenant_access_token": "t-send", "expire": 7200},
+        )
+        httpx_mock.add_response(
+            url="https://open.feishu.cn/open-apis/im/v1/messages?receive_id_type=chat_id",
+            method="POST",
+            json={"code": 0, "data": {"message_id": "om_test"}},
+        )
+
+        notifier = FeishuNotifier("test-app-id", "test-secret")
+        result = notifier.send_card(self.CHAT_ID, "测试标题", "测试内容")
 
         assert result is True
+        # Verify send request body
+        send_req = httpx_mock.get_requests()[1]
+        body = json.loads(send_req.content)
+        assert body["msg_type"] == "interactive"
+        assert body["receive_id"] == self.CHAT_ID
 
     @pytest.mark.httpx_mock(can_send_already_matched_responses=True)
-    def test_returns_false_on_error(self, httpx_mock):
-        httpx_mock.add_response(url="https://hook.example.com/fail", method="POST", status_code=500)
-
-        result = send_feishu_notification(
-            webhook_url="https://hook.example.com/fail",
-            title="机票监控报告",
-            content="测试内容",
+    def test_send_card_returns_false_on_error(self, httpx_mock):
+        httpx_mock.add_response(
+            url="https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal",
+            method="POST",
+            json={"code": 0, "tenant_access_token": "t-send", "expire": 7200},
         )
+        httpx_mock.add_response(
+            url="https://open.feishu.cn/open-apis/im/v1/messages?receive_id_type=chat_id",
+            method="POST",
+            status_code=500,
+        )
+
+        notifier = FeishuNotifier("test-app-id", "test-secret")
+        result = notifier.send_card(self.CHAT_ID, "测试标题", "测试内容")
 
         assert result is False
 
+    @pytest.mark.httpx_mock(can_send_already_matched_responses=True)
+    def test_send_card_returns_false_on_network_error(self, httpx_mock):
+        httpx_mock.add_response(
+            url="https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal",
+            method="POST",
+            json={"code": 0, "tenant_access_token": "t-send", "expire": 7200},
+        )
+        httpx_mock.add_exception(
+            url="https://open.feishu.cn/open-apis/im/v1/messages?receive_id_type=chat_id",
+            exception=httpx.ConnectError("connection refused"),
+        )
 
-class TestSendPriceDropAlert:
-    def test_returns_false_for_empty_combinations(self):
-        result = send_price_drop_alert("https://hook.example.com/test", [], 500)
+        notifier = FeishuNotifier("test-app-id", "test-secret")
+        result = notifier.send_card(self.CHAT_ID, "测试标题", "测试内容")
+
         assert result is False
 
     @pytest.mark.httpx_mock(can_send_already_matched_responses=True)
-    def test_sends_alert_when_called(self, httpx_mock):
-        httpx_mock.add_response(url="https://hook.example.com/test", method="POST", status_code=200)
-        combinations = [
-            {
-                'total_price': 3000,
-                'outbound': {
-                    'flight_no': 'XX0001', 'airline': '测试航空',
-                    'departure_airport': 'AAA', 'arrival_airport': 'BBB',
-                    'dep_time': '08:00', 'arr_time': '14:00', 'stops': 0, 'price': 1500,
-                },
-                'return': {
-                    'flight_no': 'XX0002', 'airline': '测试航空',
-                    'departure_airport': 'BBB', 'arrival_airport': 'AAA',
-                    'dep_time': '16:00', 'arr_time': '22:00', 'stops': 0, 'price': 1500,
-                },
-            }
-        ]
-        result = send_price_drop_alert("https://hook.example.com/test", combinations, 2000)
+    def test_send_text_success(self, httpx_mock):
+        httpx_mock.add_response(
+            url="https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal",
+            method="POST",
+            json={"code": 0, "tenant_access_token": "t-send", "expire": 7200},
+        )
+        httpx_mock.add_response(
+            url="https://open.feishu.cn/open-apis/im/v1/messages?receive_id_type=chat_id",
+            method="POST",
+            json={"code": 0, "data": {"message_id": "om_text"}},
+        )
+
+        notifier = FeishuNotifier("test-app-id", "test-secret")
+        result = notifier.send_text(self.CHAT_ID, "纯文本消息")
+
         assert result is True
+        send_req = httpx_mock.get_requests()[1]
+        body = json.loads(send_req.content)
+        assert body["msg_type"] == "text"
 
+    @pytest.mark.httpx_mock(can_send_already_matched_responses=True)
+    def test_send_text_returns_false_on_api_error(self, httpx_mock):
+        httpx_mock.add_response(
+            url="https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal",
+            method="POST",
+            json={"code": 0, "tenant_access_token": "t-send", "expire": 7200},
+        )
+        httpx_mock.add_response(
+            url="https://open.feishu.cn/open-apis/im/v1/messages?receive_id_type=chat_id",
+            method="POST",
+            json={"code": 11222, "msg": "chat not found"},
+        )
 
-class TestSendLarkNotification:
-    def test_sends_markdown_via_lark_cli(self):
-        with mock.patch("subprocess.run") as mock_run:
-            mock_run.return_value.returncode = 0
-            result = send_lark_notification(
-                "oc_test123", "机票监控报告", "测试内容"
-            )
-            assert result is True
-            mock_run.assert_called_once()
-            args = mock_run.call_args[0][0]
-            assert "--markdown" in args
-            assert "oc_test123" in args
-            assert "**机票监控报告**" in args[args.index("--markdown") + 1]
+        notifier = FeishuNotifier("test-app-id", "test-secret")
+        result = notifier.send_text(self.CHAT_ID, "测试")
 
-    def test_returns_false_on_subprocess_error(self):
-        with mock.patch("subprocess.run") as mock_run:
-            mock_run.side_effect = subprocess.TimeoutExpired(["lark-cli"], 15)
-            result = send_lark_notification(
-                "oc_test123", "机票监控报告", "测试内容"
-            )
-            assert result is False
+        assert result is False

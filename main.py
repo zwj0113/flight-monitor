@@ -25,7 +25,7 @@ from config_loader import load_config
 from database import FlightDB
 from searcher import build_all_search_params, search_all_routes
 from analyzer import compute_combinations, detect_price_changes, compute_trend, compute_baseline
-from notifier import format_report, send_feishu_notification, send_lark_notification, send_price_drop_alert
+from notifier import format_report, FeishuNotifier
 
 
 def run_query(config: dict) -> None:
@@ -90,35 +90,27 @@ def run_query(config: dict) -> None:
     report = format_report(combinations, changes, trend, baseline=baseline)
     print(report)
 
-    webhook = config['notification']['feishu_webhook']
-    chat_id = config['notification'].get('lark_chat_id', '')
+    feishu_cfg = config['notification']['feishu']
     threshold = config['notification']['price_drop_threshold']
 
-    if webhook and 'REPLACE_ME' not in webhook:
-        send_feishu_notification(webhook, "机票监控报告", report)
-        if any(c['change'] < -threshold for c in changes):
-            send_price_drop_alert(webhook, combinations, threshold)
-    elif chat_id:
-        send_lark_notification(chat_id, "机票监控报告", report)
-        if any(c['change'] < -threshold for c in changes):
-            _send_lark_drop_alert(chat_id, combinations)
-    else:
-        print("(Feishu notification not configured, skipping)")
+    notifier = FeishuNotifier(feishu_cfg['app_id'], feishu_cfg['app_secret'])
+    chat_id = feishu_cfg['chat_id']
+
+    notifier.send_card(chat_id, "机票监控报告", report)
+    if any(c['change'] < -threshold for c in changes):
+        _send_drop_alert(notifier, chat_id, combinations)
 
     print(f"Query completed at {time.strftime('%Y-%m-%d %H:%M:%S')}")
 
 
 def _send_empty_report(config: dict) -> None:
-    webhook = config['notification']['feishu_webhook']
-    chat_id = config['notification'].get('lark_chat_id', '')
+    feishu_cfg = config['notification']['feishu']
+    notifier = FeishuNotifier(feishu_cfg['app_id'], feishu_cfg['app_secret'])
     msg = f"⚠️ {time.strftime('%Y-%m-%d %H:%M')}\n\n本次查询未获取到航班数据，请检查去哪儿页面是否正常。"
-    if webhook and 'REPLACE_ME' not in webhook:
-        send_feishu_notification(webhook, "机票监控报告", msg)
-    elif chat_id:
-        send_lark_notification(chat_id, "机票监控报告", msg)
+    notifier.send_card(feishu_cfg['chat_id'], "机票监控报告", msg)
 
 
-def _send_lark_drop_alert(chat_id: str, combinations: list[dict]) -> None:
+def _send_drop_alert(notifier: FeishuNotifier, chat_id: str, combinations: list[dict]) -> None:
     best = combinations[0]
     msg = (
         f"🔥 机票降价提醒 - {time.strftime('%Y-%m-%d %H:%M')}\n\n"
@@ -128,7 +120,7 @@ def _send_lark_drop_alert(chat_id: str, combinations: list[dict]) -> None:
         f"{best['return']['arrival_airport']}\n"
         f"当前最低总价: ¥{best['total_price']:,}"
     )
-    send_lark_notification(chat_id, "机票降价提醒", msg)
+    notifier.send_card(chat_id, "机票降价提醒", msg)
 
 
 def main():

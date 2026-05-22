@@ -1,8 +1,13 @@
+import json
+import time
 from datetime import datetime
 
 import httpx
 
 from searcher import _airport_display
+
+TENANT_TOKEN_URL = "https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal"
+SEND_MSG_URL = "https://open.feishu.cn/open-apis/im/v1/messages?receive_id_type=chat_id"
 
 
 def format_report(
@@ -159,11 +164,6 @@ def _get_flight_change(flight_no: str, changes: list[dict]) -> str:
     return ""
 
 
-import json
-import time
-
-TENANT_TOKEN_URL = "https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal"
-SEND_MSG_URL = "https://open.feishu.cn/open-apis/im/v1/messages?receive_id_type=chat_id"
 
 
 class FeishuNotifier:

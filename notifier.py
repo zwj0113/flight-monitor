@@ -225,7 +225,7 @@ class FeishuNotifier:
         body = {
             "receive_id": chat_id,
             "msg_type": "text",
-            "content": text,
+            "content": json.dumps({"text": text}),
         }
         try:
             token = self._get_token()

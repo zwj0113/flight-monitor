@@ -1,9 +1,8 @@
 # tests/test_notifier.py
-import subprocess
 from unittest import mock
 
 import pytest
-from notifier import format_report, send_feishu_notification, send_lark_notification, send_price_drop_alert
+from notifier import format_report
 
 
 class TestFormatReport:

@@ -1,12 +1,8 @@
-import subprocess
 from datetime import datetime
-from pathlib import Path
 
 import httpx
 
 from searcher import _airport_display
-
-LARK_CLI = str(Path.home() / "AppData" / "Roaming" / "npm" / "lark-cli.exe")
 
 
 def format_report(
@@ -163,10 +159,42 @@ def _get_flight_change(flight_no: str, changes: list[dict]) -> str:
     return ""
 
 
-def send_feishu_notification(webhook_url: str, title: str, content: str) -> bool:
-    payload = {
-        "msg_type": "interactive",
-        "card": {
+import json
+import time
+
+TENANT_TOKEN_URL = "https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal"
+SEND_MSG_URL = "https://open.feishu.cn/open-apis/im/v1/messages?receive_id_type=chat_id"
+
+
+class FeishuNotifier:
+    """Send messages to Feishu via Open API with token caching."""
+
+    def __init__(self, app_id: str, app_secret: str):
+        self._app_id = app_id
+        self._app_secret = app_secret
+        self._token: str | None = None
+        self._expires_at: float = 0.0
+
+    def _get_token(self) -> str:
+        now = time.time()
+        if self._token and now < self._expires_at - 300:
+            return self._token
+
+        resp = httpx.post(
+            TENANT_TOKEN_URL,
+            json={"app_id": self._app_id, "app_secret": self._app_secret},
+            timeout=10,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        if data.get("code") != 0:
+            raise RuntimeError(f"Failed to get tenant token: {data}")
+        self._token = data["tenant_access_token"]
+        self._expires_at = now + data.get("expire", 7200)
+        return self._token
+
+    def send_card(self, chat_id: str, title: str, content: str) -> bool:
+        card = {
             "header": {
                 "title": {"tag": "plain_text", "content": title},
                 "template": "blue",
@@ -174,48 +202,41 @@ def send_feishu_notification(webhook_url: str, title: str, content: str) -> bool
             "elements": [
                 {"tag": "markdown", "content": content},
             ],
-        },
-    }
-    try:
-        resp = httpx.post(webhook_url, json=payload, timeout=10)
-        return resp.status_code == 200
-    except httpx.RequestError:
-        return False
+        }
+        body = {
+            "receive_id": chat_id,
+            "msg_type": "interactive",
+            "content": json.dumps(card),
+        }
+        try:
+            token = self._get_token()
+            resp = httpx.post(
+                SEND_MSG_URL,
+                headers={"Authorization": f"Bearer {token}"},
+                json=body,
+                timeout=10,
+            )
+            resp.raise_for_status()
+            return resp.json().get("code") == 0
+        except (httpx.RequestError, httpx.HTTPStatusError, RuntimeError):
+            return False
 
+    def send_text(self, chat_id: str, text: str) -> bool:
+        body = {
+            "receive_id": chat_id,
+            "msg_type": "text",
+            "content": text,
+        }
+        try:
+            token = self._get_token()
+            resp = httpx.post(
+                SEND_MSG_URL,
+                headers={"Authorization": f"Bearer {token}"},
+                json=body,
+                timeout=10,
+            )
+            resp.raise_for_status()
+            return resp.json().get("code") == 0
+        except (httpx.RequestError, httpx.HTTPStatusError, RuntimeError):
+            return False
 
-def send_lark_notification(chat_id: str, title: str, content: str) -> bool:
-    """Send report via lark-cli IM API to a group chat."""
-    markdown = f"**{title}**\n\n{content}"
-    try:
-        result = subprocess.run(
-            [LARK_CLI, "im", "+messages-send",
-             "--chat-id", chat_id,
-             "--markdown", markdown,
-             "--as", "bot"],
-            capture_output=True, text=True, timeout=15,
-        )
-        return result.returncode == 0
-    except (subprocess.TimeoutExpired, OSError):
-        return False
-
-
-def send_price_drop_alert(
-    webhook_url: str,
-    combinations: list[dict],
-    threshold: int,
-) -> bool:
-    """Send alert if best combination price dropped below threshold."""
-    if not combinations:
-        return False
-
-    best = combinations[0]
-    now = datetime.now().strftime('%Y-%m-%d %H:%M')
-    content = (
-        f"🔥 机票降价提醒 - {now}\n\n"
-        f"最优组合: {best['outbound']['departure_airport']}→"
-        f"{best['outbound']['arrival_airport']} + "
-        f"{best['return']['departure_airport']}→"
-        f"{best['return']['arrival_airport']}\n"
-        f"当前最低总价: ¥{best['total_price']:,}"
-    )
-    return send_feishu_notification(webhook_url, "机票降价提醒", content)
